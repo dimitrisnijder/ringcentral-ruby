@@ -110,7 +110,7 @@ class RingCentral
   private
 
     def basic_key
-      Base64.encode64("#{@app_secret}:#{@app_key}").gsub(/\s/, '')
+      Base64.encode64("#{@app_key}:#{@app_secret}").gsub(/\s/, '')
     end
 
     def autorization_header
