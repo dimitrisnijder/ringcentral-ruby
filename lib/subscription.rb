@@ -3,7 +3,7 @@ require 'concurrent'
 require 'openssl'
 require 'base64'
 
-class PubNub
+class Subscription
   attr_accessor :events
 
   def initialize(ringcentral, events, message_callback, status_callback = nil, presence_callback = nil)
@@ -47,24 +47,24 @@ class PubNub
 
   def subscribe
     r = @rc.post('/restapi/v1.0/subscription', payload: request_body)
-    self.subscription = r.body
+    self.subscription = JSON.parse(r.body)
     @pubnub = Pubnub.new(subscribe_key: @subscription['deliveryMode']['subscriberKey'])
-    @pubnub.add_listener(name: 'default', callback: @callback)
+    @pubnub.add_listener(callback: @callback)
     @pubnub.subscribe(channels: @subscription['deliveryMode']['address'])
   end
 
   def refresh
     return if @subscription == nil
     r = @rc.put("/restapi/v1.0/subscription/#{@subscription['id']}", payload: request_body)
-    self.subscription = r.body
+    self.subscription = JSON.parse(r.body)
   end
 
   def revoke
     return if @subscription == nil
     @pubnub.unsubscribe(channel: @subscription['deliveryMode']['address'])
-    @pubnub.remove_listener(name: 'default')
+    @pubnub.remove_listener(@callback)
     @pubnub = nil
-    @rc.delete("/restapi/v1.0/subscription/#{@subscription['id']}")
+    rc.delete("/restapi/v1.0/subscription/#{@subscription['id']}")
     self.subscription = nil
   end
 

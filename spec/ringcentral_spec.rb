@@ -8,25 +8,25 @@ RSpec.describe 'RingCentral' do
     end
 
     it 'test_initializer' do
-      rc = RingCentral.new('client_id', 'client_secret', RingCentral.SANDBOX_SERVER)
-      expect('client_id').to eq(rc.client_id)
-      expect('client_secret').to eq(rc.client_secret)
+      rc = RingCentral.new('app_key', 'app_secret', RingCentral.SANDBOX_SERVER)
+      expect('app_key').to eq(rc.app_key)
+      expect('app_secret').to eq(rc.app_secret)
       expect('https://platform.devtest.ringcentral.com').to eq(rc.server)
-      expect(false).to eq(rc.auto_refresh)
+      expect(true).to eq(rc.auto_refresh)
     end
 
     it 'test_authorize_uri' do
-      rc = RingCentral.new('client_id', 'client_secret', RingCentral.SANDBOX_SERVER)
-      expect(RingCentral.SANDBOX_SERVER + '/restapi/oauth/authorize?client_id=client_id&redirect_uri=https%3A%2F%2Fexample.com&response_type=code&state=mystate').to eq(rc.authorize_uri('https://example.com', 'mystate'))
+      rc = RingCentral.new('app_key', 'app_secret', RingCentral.SANDBOX_SERVER)
+      expect(RingCentral.SANDBOX_SERVER + '/restapi/oauth/authorize?client_id=app_secret&redirect_uri=https%3A%2F%2Fexample.com&response_type=code&state=mystate').to eq(rc.authorize_uri('https://example.com', 'mystate'))
     end
 
     it 'test_password_flow' do
       Dotenv.load
-      rc = RingCentral.new(ENV['RINGCENTRAL_CLIENT_ID'], ENV['RINGCENTRAL_CLIENT_SECRET'], ENV['RINGCENTRAL_SERVER_URL'])
+      rc = RingCentral.new(ENV['appKey'], ENV['appSecret'], ENV['server'])
       expect(rc.token).to be_nil
 
       # create token
-      rc.authorize(username: ENV['RINGCENTRAL_USERNAME'], extension: ENV['RINGCENTRAL_EXTENSION'], password: ENV['RINGCENTRAL_PASSWORD'])
+      rc.authorize(username: ENV['username'], extension: ENV['extension'], password: ENV['password'])
       expect(rc.token).not_to be_nil
 
       # refresh token
@@ -40,43 +40,41 @@ RSpec.describe 'RingCentral' do
 
     it 'test_http_methods' do
       Dotenv.load
-      rc = RingCentral.new(ENV['RINGCENTRAL_CLIENT_ID'], ENV['RINGCENTRAL_CLIENT_SECRET'], ENV['RINGCENTRAL_SERVER_URL'])
-      rc.authorize(username: ENV['RINGCENTRAL_USERNAME'], extension: ENV['RINGCENTRAL_EXTENSION'], password: ENV['RINGCENTRAL_PASSWORD'])
+      rc = RingCentral.new(ENV['appKey'], ENV['appSecret'], ENV['server'])
+      rc.authorize(username: ENV['username'], extension: ENV['extension'], password: ENV['password'])
 
       # get
       r = rc.get('/restapi/v1.0/account/~/extension/~')
       expect(r).not_to be_nil
-      expect('101').to eq(r.body['extensionNumber'])
+      expect('101').to eq(JSON.parse(r.body)['extensionNumber'])
 
       # post
       r = rc.post('/restapi/v1.0/account/~/extension/~/sms', payload: {
-        to: [{phoneNumber: ENV['RINGCENTRAL_RECEIVER']}],
-        from: {phoneNumber: ENV['RINGCENTRAL_USERNAME']},
+        to: [{phoneNumber: ENV['receiver']}],
+        from: {phoneNumber: ENV['username']},
         text: 'Hello world'
       })
       expect(r).not_to be_nil
-      message = r.body
+      message = JSON.parse(r.body)
       expect('SMS').to eq(message['type'])
       messageUrl = "/restapi/v1.0/account/~/extension/~/message-store/#{message['id']}"
 
       # put
       r = rc.put(messageUrl, payload: { readStatus: 'Unread' })
       expect(r).not_to be_nil
-      message = r.body
+      message = JSON.parse(r.body)
       expect('Unread').to eq(message['readStatus'])
       r = rc.put(messageUrl, payload: { readStatus: 'Read' })
       expect(r).not_to be_nil
-      message = r.body
+      message = JSON.parse(r.body)
       expect('Read').to eq(message['readStatus'])
-
-      # todo: test patch
 
       # delete
       r = rc.delete(messageUrl)
       expect(r).not_to be_nil
       r = rc.get(messageUrl)
       expect(r).not_to be_nil
-      message = r.body
+      message = JSON.parse(r.body)
       expect('Deleted').to eq(message['availability'])
     end
   end

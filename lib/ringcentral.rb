@@ -1,10 +1,9 @@
 require 'base64'
 require 'addressable/uri'
+require 'subscription'
+require 'rest-client'
 require 'json'
 require 'concurrent'
-require 'faraday'
-require 'faraday_middleware'
-require 'tmpdir'
 
 class RingCentral
   def self.SANDBOX_SERVER
@@ -15,22 +14,16 @@ class RingCentral
     'https://platform.ringcentral.com'
   end
 
-  attr_reader :client_id, :client_secret, :server, :token
+  attr_reader :app_key, :app_secret, :server, :token
   attr_accessor :auto_refresh
 
-  def initialize(client_id, client_secret, server)
-    @client_id = client_id
-    @client_secret = client_secret
+  def initialize(app_key, app_secret, server)
+    @app_key = app_key
+    @app_secret = app_secret
     @server = server
-    @auto_refresh = false
+    @auto_refresh = true
     @token = nil
     @timer = nil
-    @faraday = Faraday.new(url: server, request: { params_encoder: Faraday::FlatParamsEncoder }) do |faraday|
-      faraday.request :multipart
-      faraday.request :url_encoded
-      faraday.response :json, content_type: /\bjson$/
-      faraday.adapter Faraday.default_adapter
-    end
   end
 
   def token=(value)
@@ -62,7 +55,7 @@ class RingCentral
     end
     self.token = nil
     r = self.post('/restapi/oauth/token', payload: payload)
-    self.token = r.body
+    self.token = JSON.parse(r.body)
   end
 
   def refresh
@@ -73,7 +66,7 @@ class RingCentral
     }
     self.token = nil
     r = self.post('/restapi/oauth/token', payload: payload)
-    self.token = r.body
+    self.token = JSON.parse(r.body)
   end
 
   def revoke
@@ -89,82 +82,52 @@ class RingCentral
       response_type: 'code',
       state: state,
       redirect_uri: redirect_uri,
-      client_id: @client_id
+      client_id: @app_secret
     }
     uri.to_s
   end
 
-  def get(endpoint, params = {})
-    @faraday.get do |req|
-      req.url endpoint
-      req.params = params
-      req.headers = headers
-    end
+  def get(endpoint, params = nil)
+    request(:get, endpoint, params: params)
   end
 
-  def post(endpoint, payload: nil, params: {}, files: nil)
-    @faraday.post do |req|
-      req.url endpoint
-      req.params = params
-      if files != nil && files.size > 0 # send fax or MMS
-        io = StringIO.new(payload.to_json)
-        payload = {}
-        payload[:json] = Faraday::UploadIO.new(io, 'application/json')
-        payload[:attachment] = files.map{ |file| Faraday::UploadIO.new(file[0], file[1]) }
-        req.headers = headers
-        req.body = payload
-      elsif payload != nil && @token != nil
-        req.headers = headers.merge({ 'Content-Type': 'application/json' })
-        req.body = payload.to_json
-      else
-        req.headers = headers
-        req.body = payload
-      end
-    end
+  def post(endpoint, payload: nil, params: nil, files: nil)
+    request(:post, endpoint, payload: payload, params: params, files: files)
   end
 
-  def put(endpoint, payload: nil, params: {}, files: nil)
-    @faraday.put do |req|
-      req.url endpoint
-      req.params = params
-      req.headers = headers.merge({ 'Content-Type': 'application/json' })
-      req.body = payload.to_json
-    end
+  def put(endpoint, payload: nil, params: nil, files: nil)
+    request(:put, endpoint, payload: payload, params: params, files: files)
   end
 
-  def patch(endpoint, payload: nil, params: {}, files: nil)
-    @faraday.patch do |req|
-      req.url endpoint
-      req.params = params
-      req.headers = headers.merge({ 'Content-Type': 'application/json' })
-      req.body = payload.to_json
-    end
+  def delete(endpoint, params = nil)
+    request(:delete, endpoint, params: params)
   end
 
-  def delete(endpoint, params = {})
-    @faraday.delete do |req|
-      req.url endpoint
-      req.params = params
-      req.headers = headers
-    end
+  def subscription(events, callback)
+    Subscription.new(self, events, callback)
   end
 
   private
 
     def basic_key
-      Base64.encode64("#{@client_secret}:#{@client_id}").gsub(/\s/, '')
+      Base64.encode64("#{@app_key}:#{@app_secret}").gsub(/\s/, '')
     end
 
     def autorization_header
       @token != nil ? "Bearer #{@token['access_token']}" : "Basic #{basic_key}"
     end
 
-    def headers
+    def request(method, endpoint, params: nil, payload: nil, files: nil)
+      url = (Addressable::URI.parse(@server) + endpoint).to_s
       user_agent_header = "ringcentral/ringcentral-ruby Ruby #{RUBY_VERSION} #{RUBY_PLATFORM}"
-      {
+      headers = {
         'Authorization': autorization_header,
-        'RC-User-Agent': user_agent_header,
-        'User-Agent': user_agent_header,
+        'RC-User-Agent': user_agent_header
       }
+      if payload != nil && @token != nil
+        headers['Content-Type'] = 'application/json'
+        payload = payload.to_json
+      end
+      RestClient::Request.execute(method: method.to_sym, url: url, params: params, payload: payload, headers: headers, files: files)
     end
 end
